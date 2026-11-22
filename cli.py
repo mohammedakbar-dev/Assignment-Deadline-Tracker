@@ -88,13 +88,41 @@ def print_summary(records):
     print()
 
 
+def _persist_records(repo, records, action_label):
+    try:
+        repo.save(records)
+    except TimeoutError as exc:
+        logger.error("Lock timeout during %s: %s", action_label, exc)
+        print(f"Storage busy (lock timeout) during {action_label}: {exc}\n")
+        return False
+    except PermissionError as exc:
+        logger.error("Permission denied during %s: %s", action_label, exc)
+        print(f"Permission error during {action_label}: {exc}\n")
+        return False
+    except OSError as exc:
+        logger.error("Disk/I/O error during %s (possible full disk or path issue): %s", action_label, exc)
+        print(f"File/Disk error during {action_label}: {exc}\n")
+        return False
+    return True
+
+
 def main():
     configure_logging(PATHS["log_file"])
     repo = AssignmentRepository(PATHS["data_file"])
 
-    records, changed = refresh_overdue_statuses(repo.load())
-    if changed:
-        repo.save(records)
+    try:
+        loaded = repo.load()
+        records, changed = refresh_overdue_statuses(loaded)
+        if changed:
+            _persist_records(repo, records, "overdue status refresh")
+    except TimeoutError as exc:
+        logger.error("Startup lock timeout: %s", exc)
+        print(f"Warning: Storage file is currently locked by another process ({exc}). Starting empty.\n")
+        records = []
+    except OSError as exc:
+        logger.error("Startup I/O error: %s", exc)
+        print(f"Warning: Could not read storage file ({exc}). Starting empty.\n")
+        records = []
 
     while True:
         print("=== Assignment Deadline Tracker (CLI) ===")
@@ -114,12 +142,13 @@ def main():
             course = input("Course Code (default GENERAL): ")
             due = input("Due Date (YYYY-MM-DD): ")
             try:
-                records, created = add_assignment(records, title, course, due)
-                repo.save(records)
-                print(f"Saved {created['id']}: {created['assignment']} [{created['status']}]\n")
-            except (ValueError, OSError, TimeoutError) as exc:
-                logger.error("Add assignment failed: %s", exc)
-                print(f"Error: {exc}\n")
+                updated_records, created = add_assignment(records, title, course, due)
+                if _persist_records(repo, updated_records, "add assignment"):
+                    records = updated_records
+                    print(f"Saved {created['id']}: {created['assignment']} [{created['status']}]\n")
+            except ValueError as exc:
+                logger.error("Invalid assignment input: %s", exc)
+                print(f"Input Error: {exc}\n")
 
         elif choice == "2":
             query = input("Search keyword (or press Enter for all): ")
@@ -130,23 +159,25 @@ def main():
             print_records(sort_by_urgency(records))
             rec_id = input("Enter Assignment ID to mark completed (e.g. ASN-001): ")
             try:
-                records = mark_completed(records, rec_id)
-                repo.save(records)
-                print(f"Marked {rec_id.strip().upper()} as Completed.\n")
-            except (KeyError, OSError, TimeoutError) as exc:
+                updated_records = mark_completed(records, rec_id)
+                if _persist_records(repo, updated_records, "mark completed"):
+                    records = updated_records
+                    print(f"Marked {rec_id.strip().upper()} as Completed.\n")
+            except KeyError as exc:
                 logger.error("Mark completed failed: %s", exc)
-                print(f"Error: {exc}\n")
+                print(f"Not Found: {exc}\n")
 
         elif choice == "4":
             print_records(sort_by_urgency(records))
             rec_id = input("Enter Assignment ID to delete (e.g. ASN-001): ")
             try:
-                records = delete_assignment(records, rec_id)
-                repo.save(records)
-                print(f"Deleted {rec_id.strip().upper()}.\n")
-            except (KeyError, OSError, TimeoutError) as exc:
+                updated_records = delete_assignment(records, rec_id)
+                if _persist_records(repo, updated_records, "delete assignment"):
+                    records = updated_records
+                    print(f"Deleted {rec_id.strip().upper()}.\n")
+            except KeyError as exc:
                 logger.error("Delete assignment failed: %s", exc)
-                print(f"Error: {exc}\n")
+                print(f"Not Found: {exc}\n")
 
         elif choice == "5":
             print_summary(records)
@@ -157,9 +188,12 @@ def main():
                 with open(PATHS["csv_file"], "w", encoding="utf-8") as f:
                     f.write(csv_text)
                 print(f"Exported {len(records)} records to {PATHS['csv_file']}.\n")
+            except PermissionError as exc:
+                logger.error("CSV export permission error: %s", exc)
+                print(f"Permission Error exporting CSV: {exc}\n")
             except OSError as exc:
-                logger.error("CSV export failed: %s", exc)
-                print(f"Export Error: {exc}\n")
+                logger.error("CSV export I/O error: %s", exc)
+                print(f"Disk/I/O Error exporting CSV: {exc}\n")
 
         elif choice == "7":
             if generate_status_chart(records, PATHS["chart_file"]):
