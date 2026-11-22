@@ -1,29 +1,29 @@
 # Assignment Deadline Tracker
 
-An SRS-compliant **Assignment Deadline Tracker** built in **Python** with a modular **Command-Line Interface (CLI)**, unique assignment IDs (`ASN-XXX`), automatic overdue tracking, atomic JSON persistence, CSV export, and automated unit tests[span_1](start_span)[span_1](end_span).
+An SRS-compliant **Assignment Deadline Tracker** built in **Python** with a modular **Command-Line Interface (CLI)**, unique assignment IDs (`ASN-XXX`), urgency-based sorting, automatic overdue tracking, atomic JSON persistence via a context manager, structured logging, CSV export, optional status chart export, and automated unit tests.
 
-## Architecture (3-Tier / Separation of Concerns)
+## Architecture & Design
 
-- **`cli.py` (Presentation Layer):** Handles the interactive CLI menu, user prompts, formatted tables, and summary output[span_2](start_span)[span_2](end_span).
-- **`tracker.py` (Business Logic Layer):** Handles unique ID generation (`ASN-001`, `ASN-002`, ...), input validation, due-date and overdue status updates, search/filtering, completion, deletion, summary counts, and CSV formatting.
-- **`storage.py` (Data Layer):** Handles safe file path resolution, loading/saving JSON records, corrupt JSON backup, and atomic file writes using temporary files and `os.replace()`[span_3](start_span)[span_3](end_span).
-- **`test_tracker.py` (Automated Tests):** Unit test suite verifying ID generation, validation, overdue transitions, CRUD operations, CSV export, path safety, and atomic persistence[span_4](start_span)[span_4](end_span).
+- **`cli.py` (Presentation Layer):** Manages the interactive menu (`1–8`), user prompts, formatted tables with timing indicators, summary warnings, and chart/CSV export triggers.
+- **`tracker.py` (Business Logic Layer):** Handles unique ID generation (`ASN-001`, `ASN-002`, ...), input validation, automatic overdue status updates, urgency sorting (`Overdue` -> `Pending` -> `Completed` by due date), keyword search, completion, deletion, summary counts, CSV formatting, and optional Matplotlib status chart generation.
+- **`storage.py` (Data & Persistence Layer):** Provides centralized path configuration, path traversal protection (`resolve_safe_path`), `AssignmentRepository`, structured `logging` configuration, corrupt JSON backup (`.corrupt.bak`), and atomic JSON writes (`atomic_write_stream` using a temp file, `flush()`, `os.fsync()`, and `os.replace()`).
+- **`test_tracker.py` (Automated Unit Tests):** Verifies unique IDs, validation errors, overdue transitions, urgency sorting, CRUD operations, CSV export, `AssignmentRepository`, atomic file writes, and path safety.
 
 ## Features
 
 - **Unique Record Identifiers:** Auto-generates sequential IDs such as `ASN-001` and `ASN-002`.
-- **Input Validation & Error Handling:** Validates non-empty assignment names, `YYYY-MM-DD` due dates, and valid record IDs without crashing.
-- **Automatic Overdue Detection:** Compares due dates against the current date and automatically updates incomplete past-due tasks to `Overdue`.
-- **Search & Status Management:** Search assignments by ID, name, course, or status; mark tasks as `Completed`; or delete records.
-- **Summary & CSV Export:** Displays counts for `Total`, `Pending`, `Overdue`, and `Completed` assignments, plus exports records to `assignments.csv`.
-- **Atomic Persistence:** Uses temporary files, `os.fsync()`, and `os.replace()` to protect `assignments.json` against partial writes or corruption.
+- **Input Validation & Path Safety:** Validates non-empty titles and `YYYY-MM-DD` due dates, blocks unsafe path traversal, and handles invalid IDs or malformed inputs cleanly.
+- **Automatic Overdue Detection & Urgency Sorting:** Updates past-due incomplete assignments to `Overdue` and orders views by urgency.
+- **Search, Complete & Delete:** Filter records by ID, title, course, or status; mark items `Completed`; or delete records.
+- **Summary, CSV & Optional Chart Export:** Displays `Total`, `Pending`, `Overdue`, and `Completed` counts, exports `assignments.csv`, and optionally exports `status_chart.png` when `matplotlib` is installed.
+- **Atomic Persistence & Logging:** Uses temporary files, `os.fsync()`, and `os.replace()` to prevent partial writes, while logging events and errors to `tracker.log`.
 
 ## Project Structure
 
 ```text
 assignment-deadline-tracker/
 ├── cli.py              # CLI presentation layer
-├── tracker.py          # Business logic and validation
-├── storage.py          # Atomic JSON storage and path safety
+├── tracker.py          # Business logic, urgency sorting & chart helper
+├── storage.py          # Repository, atomic writes, path safety & logging
 ├── test_tracker.py     # Automated unit tests
 └── README.md           # Project documentation
