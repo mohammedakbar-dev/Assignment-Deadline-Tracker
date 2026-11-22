@@ -16,6 +16,7 @@ from tracker import (
 
 logger = logging.getLogger(__name__)
 PATHS = get_default_paths(os.path.dirname(os.path.abspath(__file__)))
+PAGE_SIZE = 5
 
 
 def format_timing(record):
@@ -32,18 +33,48 @@ def format_timing(record):
         return "Invalid date"
 
 
-def print_records(records):
-    if not records:
-        print("No assignments found.\n")
-        return
-    print("\nID       | Assignment                     | Course     | Due Date   | Status    | Timing")
+def print_page(page_items, page_num, total_pages):
+    print(f"\n--- Page {page_num} of {total_pages} ---")
+    print("ID       | Assignment                     | Course     | Due Date   | Status    | Timing")
     print("-" * 96)
-    for r in records:
+    for r in page_items:
         print(
             f"{r['id']:<8} | {r['assignment'][:30]:<30} | {r['course'][:10]:<10} | "
             f"{r['due_date']:<10} | {r['status']:<9} | {format_timing(r)}"
         )
     print()
+
+
+def print_records(records, page_size=PAGE_SIZE):
+    if not records:
+        print("No assignments found.\n")
+        return
+
+    safe_size = max(1, int(page_size))
+    total_pages = (len(records) + safe_size - 1) // safe_size
+
+    if total_pages == 1:
+        print_page(records, 1, 1)
+        return
+
+    page_idx = 0
+    while True:
+        start = page_idx * safe_size
+        end = start + safe_size
+        print_page(records[start:end], page_idx + 1, total_pages)
+        nav = input("[N]ext page, [P]revious page, [Q]uit view: ").strip().lower()
+        if nav in ("n", "next", ""):
+            if page_idx + 1 < total_pages:
+                page_idx += 1
+            else:
+                break
+        elif nav in ("p", "prev", "previous"):
+            if page_idx > 0:
+                page_idx -= 1
+        elif nav in ("q", "quit"):
+            break
+        else:
+            print("Enter N, P, or Q.")
 
 
 def print_summary(records):
@@ -86,7 +117,7 @@ def main():
                 records, created = add_assignment(records, title, course, due)
                 repo.save(records)
                 print(f"Saved {created['id']}: {created['assignment']} [{created['status']}]\n")
-            except (ValueError, OSError) as exc:
+            except (ValueError, OSError, TimeoutError) as exc:
                 logger.error("Add assignment failed: %s", exc)
                 print(f"Error: {exc}\n")
 
@@ -102,7 +133,7 @@ def main():
                 records = mark_completed(records, rec_id)
                 repo.save(records)
                 print(f"Marked {rec_id.strip().upper()} as Completed.\n")
-            except (KeyError, OSError) as exc:
+            except (KeyError, OSError, TimeoutError) as exc:
                 logger.error("Mark completed failed: %s", exc)
                 print(f"Error: {exc}\n")
 
@@ -113,7 +144,7 @@ def main():
                 records = delete_assignment(records, rec_id)
                 repo.save(records)
                 print(f"Deleted {rec_id.strip().upper()}.\n")
-            except (KeyError, OSError) as exc:
+            except (KeyError, OSError, TimeoutError) as exc:
                 logger.error("Delete assignment failed: %s", exc)
                 print(f"Error: {exc}\n")
 

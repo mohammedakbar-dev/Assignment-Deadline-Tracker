@@ -82,6 +82,15 @@ class TestAssignmentTracker(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 resolve_safe_path(tmpdir, "../../evil.json")
+                
+    def test_file_lock_and_custom_paths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = get_default_paths(tmpdir, data_name="custom_asn.json")
+            self.assertTrue(paths["data_file"].endswith("custom_asn.json"))
+            repo = AssignmentRepository(paths["data_file"])
+            recs, _ = add_assignment([], "Lock Test", "CS102", "2026-11-26", today=date(2026, 11, 22))
+            repo.save(recs)
+            self.assertEqual(repo.load(), recs)
 
 
 if __name__ == "__main__":
