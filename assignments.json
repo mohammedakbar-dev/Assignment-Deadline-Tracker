@@ -1,0 +1,14 @@
+[
+    {
+        "Assignment": "Math Homework 1",
+        "Course": "MATH101",
+        "Due Date": "2026-11-22",
+        "Status": "Completed"
+    },
+    {
+        "Assignment": "Python Assignment 1",
+        "Course": "PY102",
+        "Due Date": "2026-11-21",
+        "Status": "Overdue"
+    }
+]
