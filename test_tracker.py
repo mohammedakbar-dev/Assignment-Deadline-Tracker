@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from datetime import date
 
-from storage import load_records, resolve_safe_path, save_records_atomic
+from storage import AssignmentRepository, get_default_paths, load_records, resolve_safe_path, save_records_atomic
 from tracker import (
     add_assignment,
     days_until_due,
@@ -13,6 +13,7 @@ from tracker import (
     mark_completed,
     refresh_overdue_statuses,
     search_assignments,
+    sort_by_urgency,
 )
 
 
@@ -36,18 +37,20 @@ class TestAssignmentTracker(unittest.TestCase):
         with self.assertRaises(ValueError):
             add_assignment([], "Valid Title", "CS101", "22-11-2026")
 
-    def test_overdue_refresh_and_complete(self):
+    def test_overdue_refresh_complete_and_urgency_sort(self):
+        today = date(2026, 11, 22)
         records = [
-            {"id": "ASN-001", "assignment": "Old Task", "course": "CS101", "due_date": "2026-11-20", "status": "Pending"},
-            {"id": "ASN-002", "assignment": "Done Old Task", "course": "CS101", "due_date": "2026-11-18", "status": "Completed"},
+            {"id": "ASN-001", "assignment": "Future Task", "course": "CS101", "due_date": "2026-11-26", "status": "Pending"},
+            {"id": "ASN-002", "assignment": "Late Task", "course": "CS101", "due_date": "2026-11-20", "status": "Pending"},
+            {"id": "ASN-003", "assignment": "Done Task", "course": "CS101", "due_date": "2026-11-18", "status": "Completed"},
         ]
-        refreshed, changed = refresh_overdue_statuses(records, today=date(2026, 11, 22))
+        refreshed, changed = refresh_overdue_statuses(records, today=today)
         self.assertTrue(changed)
-        self.assertEqual(refreshed[0]["status"], "Overdue")
-        self.assertEqual(refreshed[1]["status"], "Completed")
+        sorted_recs = sort_by_urgency(refreshed, today=today)
+        self.assertEqual([r["id"] for r in sorted_recs], ["ASN-002", "ASN-001", "ASN-003"])
 
-        completed = mark_completed(refreshed, "ASN-001")
-        self.assertEqual(completed[0]["status"], "Completed")
+        completed = mark_completed(refreshed, "ASN-002")
+        self.assertEqual(completed[1]["status"], "Completed")
         counts = get_summary_counts(completed)
         self.assertEqual(counts["completed"], 2)
         self.assertEqual(counts["overdue"], 0)
@@ -68,12 +71,14 @@ class TestAssignmentTracker(unittest.TestCase):
         with self.assertRaises(KeyError):
             delete_assignment(after_del, "ASN-999")
 
-    def test_atomic_save_load_and_path_safety(self):
+    def test_atomic_save_load_repository_and_path_safety(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            safe = resolve_safe_path(tmpdir, "assignments.json")
+            paths = get_default_paths(tmpdir)
+            repo = AssignmentRepository(paths["data_file"])
             recs, _ = add_assignment([], "Persist Test", "CS101", "2026-11-25", today=date(2026, 11, 22))
-            save_records_atomic(safe, recs)
-            self.assertEqual(load_records(safe), recs)
+            repo.save(recs)
+            self.assertEqual(repo.load(), recs)
+            self.assertEqual(load_records(paths["data_file"]), recs)
 
             with self.assertRaises(ValueError):
                 resolve_safe_path(tmpdir, "../../evil.json")

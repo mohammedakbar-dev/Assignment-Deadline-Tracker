@@ -1,5 +1,8 @@
 from datetime import date, datetime
+import logging
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 def parse_due_date(date_str: str) -> date:
@@ -41,11 +44,29 @@ def refresh_overdue_statuses(
             if status != "Completed" and due < ref_date and status != "Overdue":
                 copy_item["status"] = "Overdue"
                 changed = True
-        except ValueError:
-            pass
+        except ValueError as exc:
+            logger.warning("Skipping invalid date '%s' on record %s: %s", due_raw, copy_item.get("id"), exc)
         updated.append(copy_item)
 
+    if changed:
+        logger.info("Refreshed overdue statuses as of %s.", ref_date.isoformat())
     return updated, changed
+
+
+def sort_by_urgency(records: List[Dict[str, Any]], today: Optional[date] = None) -> List[Dict[str, Any]]:
+    ref_date = today or date.today()
+    status_rank = {"Overdue": 0, "Pending": 1, "Completed": 2}
+
+    def sort_key(rec: Dict[str, Any]) -> Tuple[int, int, str]:
+        st = str(rec.get("status", "Pending"))
+        rank = status_rank.get(st, 1)
+        try:
+            days = (parse_due_date(str(rec.get("due_date", ""))) - ref_date).days
+        except ValueError:
+            days = 999999
+        return (rank, days, str(rec.get("id", "")))
+
+    return sorted(records, key=sort_key)
 
 
 def add_assignment(
@@ -71,7 +92,7 @@ def add_assignment(
         "due_date": due.isoformat(),
         "status": status,
     }
-
+    logger.info("Added assignment %s (%s).", new_record["id"], new_record["assignment"])
     return list(records) + [new_record], new_record
 
 
@@ -100,6 +121,7 @@ def mark_completed(records: List[Dict[str, Any]], record_id: str) -> List[Dict[s
         updated.append(item)
     if not found:
         raise KeyError(f"Assignment ID '{record_id}' not found.")
+    logger.info("Marked assignment %s as Completed.", target)
     return updated
 
 
@@ -108,6 +130,7 @@ def delete_assignment(records: List[Dict[str, Any]], record_id: str) -> List[Dic
     filtered = [r for r in records if str(r.get("id", "")).upper() != target]
     if len(filtered) == len(records):
         raise KeyError(f"Assignment ID '{record_id}' not found.")
+    logger.info("Deleted assignment %s.", target)
     return filtered
 
 
@@ -127,3 +150,25 @@ def export_to_csv_string(records: List[Dict[str, Any]]) -> str:
             f"\"{r.get('id', '')}\",\"{r.get('assignment', '')}\",\"{r.get('course', '')}\",\"{r.get('due_date', '')}\",\"{r.get('status', '')}\""
         )
     return "\n".join(lines)
+
+
+def generate_status_chart(records: List[Dict[str, Any]], output_path: str) -> bool:
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.info("Matplotlib not installed; skipping chart generation.")
+        return False
+
+    counts = get_summary_counts(records)
+    labels = ["Pending", "Overdue", "Completed"]
+    values = [counts["pending"], counts["overdue"], counts["completed"]]
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.bar(labels, values)
+    ax.set_title("Assignment Status Summary")
+    ax.set_ylabel("Count")
+    fig.tight_layout()
+    fig.savefig(output_path)
+    plt.close(fig)
+    logger.info("Generated status chart at %s.", output_path)
+    return True

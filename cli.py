@@ -1,19 +1,21 @@
+import logging
 import os
-from storage import load_records, resolve_safe_path, save_records_atomic
+from storage import AssignmentRepository, configure_logging, get_default_paths
 from tracker import (
     add_assignment,
     days_until_due,
     delete_assignment,
     export_to_csv_string,
+    generate_status_chart,
     get_summary_counts,
     mark_completed,
     refresh_overdue_statuses,
     search_assignments,
+    sort_by_urgency,
 )
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = resolve_safe_path(BASE_DIR, "assignments.json")
-CSV_FILE = resolve_safe_path(BASE_DIR, "assignments.csv")
+logger = logging.getLogger(__name__)
+PATHS = get_default_paths(os.path.dirname(os.path.abspath(__file__)))
 
 
 def format_timing(record):
@@ -56,21 +58,25 @@ def print_summary(records):
 
 
 def main():
-    records, changed = refresh_overdue_statuses(load_records(DATA_FILE))
+    configure_logging(PATHS["log_file"])
+    repo = AssignmentRepository(PATHS["data_file"])
+
+    records, changed = refresh_overdue_statuses(repo.load())
     if changed:
-        save_records_atomic(DATA_FILE, records)
+        repo.save(records)
 
     while True:
         print("=== Assignment Deadline Tracker (CLI) ===")
         print("1. Add Assignment")
-        print("2. View All / Search Assignments")
+        print("2. View All (Urgency Sorted) / Search Assignments")
         print("3. Mark Assignment as Completed")
         print("4. Delete Assignment")
         print("5. View Summary")
         print("6. Export CSV Report")
-        print("7. Exit")
+        print("7. Export Status Chart (PNG)")
+        print("8. Exit")
 
-        choice = input("Select an option (1-7): ").strip()
+        choice = input("Select an option (1-8): ").strip()
 
         if choice == "1":
             title = input("Assignment Name: ")
@@ -78,33 +84,37 @@ def main():
             due = input("Due Date (YYYY-MM-DD): ")
             try:
                 records, created = add_assignment(records, title, course, due)
-                save_records_atomic(DATA_FILE, records)
+                repo.save(records)
                 print(f"Saved {created['id']}: {created['assignment']} [{created['status']}]\n")
             except (ValueError, OSError) as exc:
+                logger.error("Add assignment failed: %s", exc)
                 print(f"Error: {exc}\n")
 
         elif choice == "2":
             query = input("Search keyword (or press Enter for all): ")
-            print_records(search_assignments(records, query))
+            matched = search_assignments(records, query)
+            print_records(sort_by_urgency(matched))
 
         elif choice == "3":
-            print_records(records)
+            print_records(sort_by_urgency(records))
             rec_id = input("Enter Assignment ID to mark completed (e.g. ASN-001): ")
             try:
                 records = mark_completed(records, rec_id)
-                save_records_atomic(DATA_FILE, records)
+                repo.save(records)
                 print(f"Marked {rec_id.strip().upper()} as Completed.\n")
             except (KeyError, OSError) as exc:
+                logger.error("Mark completed failed: %s", exc)
                 print(f"Error: {exc}\n")
 
         elif choice == "4":
-            print_records(records)
+            print_records(sort_by_urgency(records))
             rec_id = input("Enter Assignment ID to delete (e.g. ASN-001): ")
             try:
                 records = delete_assignment(records, rec_id)
-                save_records_atomic(DATA_FILE, records)
+                repo.save(records)
                 print(f"Deleted {rec_id.strip().upper()}.\n")
             except (KeyError, OSError) as exc:
+                logger.error("Delete assignment failed: %s", exc)
                 print(f"Error: {exc}\n")
 
         elif choice == "5":
@@ -113,18 +123,25 @@ def main():
         elif choice == "6":
             try:
                 csv_text = export_to_csv_string(records)
-                with open(CSV_FILE, "w", encoding="utf-8") as f:
+                with open(PATHS["csv_file"], "w", encoding="utf-8") as f:
                     f.write(csv_text)
-                print(f"Exported {len(records)} records to {CSV_FILE}.\n")
+                print(f"Exported {len(records)} records to {PATHS['csv_file']}.\n")
             except OSError as exc:
+                logger.error("CSV export failed: %s", exc)
                 print(f"Export Error: {exc}\n")
 
         elif choice == "7":
+            if generate_status_chart(records, PATHS["chart_file"]):
+                print(f"Chart saved to {PATHS['chart_file']}.\n")
+            else:
+                print("Matplotlib not installed; install matplotlib to generate PNG chart.\n")
+
+        elif choice == "8":
             print("Exiting tracker. Goodbye!")
             break
 
         else:
-            print("Invalid option. Please choose 1 to 7.\n")
+            print("Invalid option. Please choose 1 to 8.\n")
 
 
 if __name__ == "__main__":
